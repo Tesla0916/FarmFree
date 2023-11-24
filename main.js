@@ -6,18 +6,20 @@ if (!auto.service) {
   exit();
 }
 
-function getSetting() {
+function userChoice() {
   let indices = []
   taobaoOpen && indices.push(0)
   payOpen && indices.push(1)
   furOpen && indices.push(2)
   indices.push(3)
+  indices.push(4)
 
   let settings = dialogs.multiChoice('任务设置',
-    ['自动打开淘宝进入活动。',
-      '自动打开支付宝进入活动。',
-      '是否自动施肥',
-      '请在运行之前退出正在运行的淘宝和支付宝，否则可能找不到对应页面(此选项用于保证选择的处理，勿动！)'
+    ['开始淘宝任务',
+      '开始支付宝任务',
+      '自动施肥(至少勾选支付宝或者淘宝中的一项，如果都选择了，将优先在淘宝任务结束后执行)',
+      '请确认已退出淘宝和支付宝',
+      '可以通过按【音量下】键停止脚本任务'
     ], indices)
 
   if (settings.length == 0) {
@@ -63,7 +65,7 @@ function initEnv() {
   sleep(1000);
   console.setSize(device.width / 2, 300);
   console.setPosition(10, 10);
-  getSetting();
+  userChoice();
 }
 
 initEnv();
@@ -74,8 +76,24 @@ try {
   toast('成功设置媒体音量为0')
 } catch (err) {
   alert('首先需要开启权限，请开启后再次运行脚本')
-  exit()
+  exit();
 }
+
+// 配置
+function listenKeyDown() {
+  try {
+    events.observeKey()
+  } catch (err) {
+    console.log('监听音量键停止失败，应该是无障碍权限出错，请关闭软件后台任务重新运行。')
+    console.log('如果还是不行可以重启手机尝试。')
+    quit();
+  }
+  events.onKeyDown('volume_down', function (event) {
+    console.log('监听到任务变更，已停止任务');
+    quit();
+  })
+}
+threads.start(listenKeyDown);
 
 // 适配设备宽度 - 不确定是否真的生效
 setScreenMetrics(1080, 2340);
@@ -84,7 +102,7 @@ device.keepScreenDim(60 * 60 * 1000);
 
 // 自定义去取消亮屏的退出方法
 function quit() {
-  device.cancelKeepingAwake()
+  device.cancelKeepingAwake();
   exit();
 }
 
@@ -126,7 +144,7 @@ function backToTaoList() {
   sleep(1000);
   // 不再淘宝内，重新打开
   if (currentPackage() !== 'com.taobao.taobao') {
-    console.log('当前不在淘宝APP内');
+    console.warn('当前不在淘宝APP内');
     sleep(2000);
     app.launch("com.taobao.taobao");
     sleep(4000);
@@ -189,7 +207,7 @@ function entryHome() {
     if (res) {
       res.forEach(function (item) {
         // item.click();
-        console.log(item.bounds().centerX(), item.bounds().centerY());
+        console.log('尝试点击>>', item.bounds().centerX(), item.bounds().centerY());
         click(item.bounds().centerX(), item.bounds().centerY());
       });
       return;
@@ -234,7 +252,7 @@ function startTaobaoBrowseTask() {
       finish_c++;
     }
     if (finish_c > 35) {
-      console.log('未检测到任务完成标识。返回。');
+      console.log('任务执行超时，自动返回');
       backToTaoList();
       return
     }
@@ -259,7 +277,7 @@ function startActTask(params) {
     return;
   }
   if (actTaks.length === retryFailTasks) {
-    console.log('剩余任务可能无法完成，请手动完成');
+    console.log('剩余任务可能无法完成，请手动完成或者尝试再次运行程序');
     backToTaoList();
     return;
   }
@@ -304,16 +322,16 @@ function sign() {
 
   if (res.exists()) {
     res.findOne().click();
+    console.log("签到结束");
     sleep(2000);
   }
-  console.log("签到结束或已签到");
   // 早午晚任务
   getBtnClick();
 }
 
 // 定时任务领取
 function getBtnClick() {
-  console.log("开始领取");
+  console.log("开始自动领取");
   const btns = findTimeout(className("android.widget.Button").text("去领取"), 5000);
   if (btns === null) {
     console.log('未找到任务')
@@ -345,10 +363,23 @@ function closeOpenModal(duration) {
 // 淘宝开始施肥
 function fertilizerTaobao() {
   let loop = true;
-  const btnRect = className('android.widget.Button').text('集肥料').findOne().bounds();
+  let fbtn = className('android.widget.Button').text('集肥料').findOne();
+  if (!fbtn) {
+    console.error('没有找到自动施肥按钮，尝试重新进入农场中...');
+    backToTaoList();
+    fbtn = className('android.widget.Button').text('集肥料').findOne();
+    // 重试之后还是找不到，提示失败
+    if (!fbtn) {
+      console.error('自动施肥失败');
+      return;
+    }
+  }
+  const btnRect = fbtn.bounds();
   const itemHeight = btnRect.bottom - btnRect.top;
   console.log("开始施肥");
-  while (loop) {
+  const clickTimes = 0;
+  while (loop && clickTimes < 420) {
+    clickTimes++;
     closeOpenModal(1000);
     // 施肥
     click(device.width / 2, btnRect.centerY());
@@ -360,6 +391,10 @@ function fertilizerTaobao() {
     // 尝试收集奖励，会有弹窗，因此同时需要检测并关闭
     click(device.width / 2, btnRect.centerY() - (itemHeight * 2));
     sleep(500);
+  }
+  if (clickTimes >= 420) {
+    console.log('检测任务结束异常，达到最大施肥次数，已停止');
+    return
   }
   return;
 }
@@ -419,7 +454,6 @@ function endFriendship(params) {
       const res = findTimeout(className("android.widget.Button").text("立即领取").depth(18).clickable(true), 2000);
       if (res) {
         res.forEach(function (item) {
-          console.log(item.text(), item.bounds(), item.clickable());
           item.click();
           sleep(1500);
         });
@@ -460,7 +494,7 @@ function startTaobao(params) {
     }
 
     if (payOpen) {
-      console.log('淘宝任务结束，开始支付宝任务');
+      console.log('淘宝任务结束，即将开始支付宝任务');
     } else {
       console.log('淘宝任务结束');
     }
@@ -482,18 +516,18 @@ if (taobaoOpen) {
 
 // 支付宝进入农场
 function enterFarm() {
-  console.log('进入农场');
+  console.log('进入zfb农场');
   if (text("芭芭农场").exists()) {
     text("芭芭农场").findOne().parent().parent().click();
   } else {
     throw Error('未在首页找到芭芭农场入口，请将芭芭农场小程序移动到支付宝首页显示');
   }
-  sleep(3000);
+  sleep(5000);
 }
 
 // 返回支付宝任务详情
 function backToPayList() {
-  console.log('尝试返回');
+  console.log('尝试返回任务列表');
 
   // 已经打开任务列表了
   if (className("android.widget.Button").text("连续签到任务规则").exists()) {
@@ -508,7 +542,7 @@ function backToPayList() {
   back();
   sleep(1000);
   if (!currentPackage().includes('Alipay')) {
-    console.log('当前不在支付宝中，尝试重新进入...');
+    console.warn('当前不在支付宝中，尝试重新进入...');
     sleep(2000);
     app.launch("com.eg.android.AlipayGphone");
     sleep(2000);
@@ -573,7 +607,7 @@ function backToPayList() {
       console.log('已经在芭芭农场，重新打开任务列表')
       return;
     }
-    console.log('仍然在支付宝中，但不在芭芭农场页面');
+    console.warn('仍然在支付宝中，但不在芭芭农场页面');
     let retryTime = 0;
     let success = false;
     while (retryTime < 5) {
@@ -594,7 +628,7 @@ function backToPayList() {
         sleep(2000);
         return;
       } else if (text("芭芭农场").exists()) {
-        console.log('直接进入芭芭农场')
+        console.log('直接进入芭芭农场');
         enterFarm();
         className("android.widget.Button").text("任务列表").findOne().click();
         retryTime = 10;
@@ -625,7 +659,7 @@ function backToPayList() {
  * 只能通过position去尝试定位一下
  */
 function startAlipaybrowse() {
-  const res = findTimeout(className("android.widget.TextView").textMatches(/.*浏览15.*|.*浏览精选好物.*/), 5000);
+  const res = findTimeout(className("android.widget.TextView").textMatches(/.*浏览15.*|.*浏览精选好物.*|.*逛15.*/), 5000);
   if (res === null) {
     console.log('未找到浏览任务');
     return;
@@ -639,7 +673,7 @@ function startAlipaybrowse() {
       sleep(4000);
       let finish_c = 0;
       let countdown = 0;
-      console.log('开始检测任务完成，部分控件无法检测，会在15秒后自动返回，请耐心等待。')
+      console.log('开始浏览任务，会在15秒后自动返回。')
       while (finish_c < 36) {
         let finish_reg = /.*任务完成.*|.*下单最高可得[\s\S]*|.*当前页下单得*|.*浏览完成*/;
         if (className("android.widget.TextView").textMatches(finish_reg).exists()) {
@@ -696,11 +730,11 @@ function startAlipayAct() {
   if ((res.length <= retryFailTasks) &&
     (!allNotSupportTaskLength
       || (allNotSupportTaskLength && res.length <= allNotSupportTaskLength))) {
-    console.log("剩余任务可能均不能完成，请手动完成");
+    console.warn("剩余任务可能均不能完成，请手动完成");
     return;
   }
   if (retryFailTasks.length > allNotSupportTaskLength) {
-    console.log('部分任务状态判断失败，重试中');
+    console.log('部分任务状态判断失败，重试中，清空点击记录');
     btnClickTime = {};
   }
   res.forEach((item, index) => {
@@ -775,19 +809,25 @@ const fertilizerAlipay = function () {
     const y = res.bounds().centerY();
 
     // 相对坐标找签到领取
-    click();
+    // click();
     sleep(1000);
 
     let loop = true;
-    while (loop) {
+    let clickTimes = 0;
+    while (loop && clickTimes < 420) {
       // click(x, y-300)
+      clickTimes++;
       // 施肥
       click(device.width / 2, y);
       if (textMatches(/.*施肥次数.*用完.*/).exists()) {
-        console.log("今日施肥已达上限")
+        console.info("今日施肥已达上限")
         loop = false;
       }
       sleep(500);
+    }
+    if (clickTimes >= 420) {
+      console.info('检测任务结束异常，达到最大施肥次数，已停止');
+      return;
     }
     return;
   } else {
@@ -823,15 +863,16 @@ function startAlipay() {
       }
     }
 
-    console.info('全部任务已经结束~如有问题请联系开发者');
   } catch (error) {
-    console.error('异常退出', error)
+    console.error('异常退出>>>', error);
+    console.log('请保留日志信息，便于排查');
   }
 }
 if (payOpen) {
   startAlipay();
 }
 
+console.info('>>>>>全部任务已经结束<<<<<');
 quit();
 
 
