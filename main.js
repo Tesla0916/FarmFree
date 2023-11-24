@@ -6,18 +6,20 @@ if (!auto.service) {
   exit();
 }
 
-function getSetting() {
+function userChoice() {
   let indices = []
   taobaoOpen && indices.push(0)
   payOpen && indices.push(1)
   furOpen && indices.push(2)
   indices.push(3)
+  indices.push(4)
 
   let settings = dialogs.multiChoice('任务设置',
-    ['自动打开淘宝进入活动。',
-      '自动打开支付宝进入活动。',
-      '是否自动施肥',
-      '请在运行之前退出正在运行的淘宝和支付宝，否则可能找不到对应页面(此选项用于保证选择的处理，勿动！)'
+    ['开始淘宝任务',
+      '开始支付宝任务',
+      '自动施肥(至少勾选支付宝或者淘宝中的一项，如果都选择了，将优先在淘宝任务结束后执行)',
+      '请确认已退出淘宝和支付宝',
+      '可以通过按【音量下】键停止脚本任务'
     ], indices)
 
   if (settings.length == 0) {
@@ -63,7 +65,7 @@ function initEnv() {
   sleep(1000);
   console.setSize(device.width / 2, 300);
   console.setPosition(10, 10);
-  getSetting();
+  userChoice();
 }
 
 initEnv();
@@ -74,8 +76,24 @@ try {
   toast('成功设置媒体音量为0')
 } catch (err) {
   alert('首先需要开启权限，请开启后再次运行脚本')
-  exit()
+  exit();
 }
+
+// 配置
+function listenKeyDown() {
+  try {
+    events.observeKey()
+  } catch (err) {
+    console.log('监听音量键停止失败，应该是无障碍权限出错，请关闭软件后台任务重新运行。')
+    console.log('如果还是不行可以重启手机尝试。')
+    quit();
+  }
+  events.onKeyDown('volume_down', function (event) {
+    console.log('监听到任务变更，已停止任务');
+    quit();
+  })
+}
+threads.start(listenKeyDown);
 
 // 适配设备宽度 - 不确定是否真的生效
 setScreenMetrics(1080, 2340);
@@ -84,7 +102,7 @@ device.keepScreenDim(60 * 60 * 1000);
 
 // 自定义去取消亮屏的退出方法
 function quit() {
-  device.cancelKeepingAwake()
+  device.cancelKeepingAwake();
   exit();
 }
 
@@ -102,72 +120,72 @@ function findTimeout(findF, timeout) {
   return null
 };
 
-// 返回任务列表
-function backToTaoList() {
+// 判断是否成功返回了任务列表|直接就在
+const isTaoBackSuccess = () => {
   if (className("android.widget.TextView").text("x500").exists()) {
     console.log('已在任务列表');
-    return;
+    return true;
   }
   if (className("android.widget.Button").text("集肥料").exists()) {
     className("android.widget.Button").text("集肥料").findOne().click();
     console.log('已经在芭芭农场，重新打开任务列表');
+    return true;
+  }
+  return false;
+}
+
+// 返回任务列表
+function backToTaoList() {
+  // 如果还在任务列表则不需要返回动作
+  if (isTaoBackSuccess()) {
     return;
   }
   back();
   sleep(1000);
+  // 不再淘宝内，重新打开
   if (currentPackage() !== 'com.taobao.taobao') {
-    console.log('当前不在淘宝APP内');
+    console.warn('当前不在淘宝APP内');
     sleep(2000);
     app.launch("com.taobao.taobao");
     sleep(4000);
-    if (className("android.widget.Button").text("集肥料").exists()) {
-      console.log('已在农场，重新进入任务列表');
-      className("android.widget.Button").text("集肥料").findOne().click();
-      sleep(2000);
+    // 同样，启动之后直接判断一下是否在任务列表
+    if (isTaoBackSuccess()) {
       return;
     }
 
     let retryTime = 0;
     let success = false;
+    // 持续back重试，一般5次之内应该能回来
     while (retryTime < 5) {
       // 重进后尝试返回一次
       back();
       sleep(1000);
-      if (className("android.widget.TextView").text("x500").exists()) {
-        console.log('已在任务列表');
-        success = true;
-        retryTime = 10;
-        return;
-      }
-      if (className("android.widget.Button").text("集肥料").exists()) {
-        console.log('已在农场，重新进入任务列表');
-        className("android.widget.Button").text("集肥料").findOne().click();
-        sleep(2000);
+      // 如果某次循环中，已经返回到任务列表了，则停止重试
+      if (isTaoBackSuccess()) {
         success = true;
         retryTime = 10;
         return;
       }
       retryTime++;
-      if (currentPackage().includes('taobao')) {
-        enterFarmTaobao();
-      }
-      if (className("android.widget.Button").text("集肥料").exists()) {
-        console.log('已在农场，重新进入任务列表');
-        className("android.widget.Button").text("集肥料").findOne().click();
-        sleep(2000);
-        success = true;
-        retryTime = 10;
-        return;
-      }
     }
+    // 超出重试次数之后仍然没有成功进入，如果此时已经返回了taobao
+    if (currentPackage() === 'com.taobao.taobao') {
+      // 尝试一下是否有入口能进入farm，能进就进，只是一个兜底，一般来说都能直接back回去
+      enterFarmTaobao();
+    }
+    // 如果能重新进入到任务列表中
+    if (isTaoBackSuccess()) {
+      return;
+    }
+    // 错误，页面异常退出
+    // TODO: 还有招，直接activity进入，但是可能页头之类的元素会有问题。。。定位相关的动作会失败
     if (!success) {
       console.error('不能正确识别页面，异常退出');
       quit();
     }
 
   } else {
-    // 如果还在端内
-    // 判断一下是不是回来了
+    // 如果还在端内，判断一下是不是回来了，正常的浏览任务或者端内跳转的都适用与这个逻辑
     if (className("android.widget.TextView").text("x500").exists()) {
       console.log('成功返回任务列表');
       return;
@@ -175,6 +193,7 @@ function backToTaoList() {
     // 没有的话只能再返回试一下 - 搜索任务就是这种情况
     back();
     sleep(1000);
+    // TODO:  这里不太严谨，也应该循环判断一下的，不过端内目前没发现很奇葩的场景，先不追究
   }
 }
 
@@ -183,12 +202,12 @@ function entryHome() {
   if (className("android.widget.TextView").text("从首页进入芭芭农场(0/1)").exists()) {
     className("android.widget.TextView").text("从首页进入芭芭农场(0/1)").findOne().parent().parent().click();
     sleep(3000);
-    // ?无法点击
+    // ?无法点击，发现每次进入的层级可能都不一样
     const res = findTimeout(className("android.view.View").clickable(true).depth(13), 5000);
     if (res) {
       res.forEach(function (item) {
         // item.click();
-        console.log(item.bounds().centerX(), item.bounds().centerY());
+        console.log('尝试点击>>', item.bounds().centerX(), item.bounds().centerY());
         click(item.bounds().centerX(), item.bounds().centerY());
       });
       return;
@@ -233,7 +252,7 @@ function startTaobaoBrowseTask() {
       finish_c++;
     }
     if (finish_c > 35) {
-      console.log('未检测到任务完成标识。返回。');
+      console.log('任务执行超时，自动返回');
       backToTaoList();
       return
     }
@@ -258,7 +277,7 @@ function startActTask(params) {
     return;
   }
   if (actTaks.length === retryFailTasks) {
-    console.log('剩余任务可能无法完成，请手动完成');
+    console.log('剩余任务可能无法完成，请手动完成或者尝试再次运行程序');
     backToTaoList();
     return;
   }
@@ -303,16 +322,16 @@ function sign() {
 
   if (res.exists()) {
     res.findOne().click();
+    console.log("签到结束");
     sleep(2000);
   }
-  console.log("签到结束或已签到");
   // 早午晚任务
   getBtnClick();
 }
 
 // 定时任务领取
 function getBtnClick() {
-  console.log("开始领取");
+  console.log("开始自动领取");
   const btns = findTimeout(className("android.widget.Button").text("去领取"), 5000);
   if (btns === null) {
     console.log('未找到任务')
@@ -329,11 +348,11 @@ function getBtnClick() {
 // 关闭弹窗
 function closeOpenModal(duration) {
   const res = findTimeout(className("android.widget.Button").text("关闭").clickable(true), duration || 5000);
-  if (res === null) {
+  if (res === null && !duration) {
     console.log('未找到关闭弹窗');
     return;
   }
-  console.log('尝试关闭弹窗');
+  console.log('有弹窗，尝试关闭弹窗');
   res.forEach(function (item) {
     item.click();
     sleep(1200);
@@ -344,10 +363,23 @@ function closeOpenModal(duration) {
 // 淘宝开始施肥
 function fertilizerTaobao() {
   let loop = true;
-  const btnRect = className('android.widget.Button').text('集肥料').findOne().bounds();
+  let fbtn = className('android.widget.Button').text('集肥料').findOne();
+  if (!fbtn) {
+    console.error('没有找到自动施肥按钮，尝试重新进入农场中...');
+    backToTaoList();
+    fbtn = className('android.widget.Button').text('集肥料').findOne();
+    // 重试之后还是找不到，提示失败
+    if (!fbtn) {
+      console.error('自动施肥失败');
+      return;
+    }
+  }
+  const btnRect = fbtn.bounds();
   const itemHeight = btnRect.bottom - btnRect.top;
   console.log("开始施肥");
-  while (loop) {
+  const clickTimes = 0;
+  while (loop && clickTimes < 420) {
+    clickTimes++;
     closeOpenModal(1000);
     // 施肥
     click(device.width / 2, btnRect.centerY());
@@ -357,8 +389,12 @@ function fertilizerTaobao() {
     }
     sleep(500);
     // 尝试收集奖励，会有弹窗，因此同时需要检测并关闭
-    click(device.width / 2,btnRect.centerY() - (itemHeight * 2));
+    click(device.width / 2, btnRect.centerY() - (itemHeight * 2));
     sleep(500);
+  }
+  if (clickTimes >= 420) {
+    console.log('检测任务结束异常，达到最大施肥次数，已停止');
+    return
   }
   return;
 }
@@ -401,15 +437,36 @@ function enterFarmTaobao(params) {
 
 }
 
-// 处理亲密度弹窗——这个弹窗有点特殊，可能在任何时机弹出来，不好搞，开始的时候先处理一下这个弹窗
-function closeShip(params) {
+/**
+ * 处理淘宝亲密度弹窗
+ * @desc 这个弹窗有点特殊，可能在任何时机弹出来，不好搞，
+ * 开始的时候先处理一下这个弹窗，领取完成了就不会再弹出了，
+ * 如果在施肥的过程中亲密度增加了，也有关闭弹窗的逻辑去处理，DW
+ */
+function endFriendship(params) {
   console.log('开始处理亲密度弹窗');
-  if (className("android.widget.Button").text("关闭").exists()) {
-    className("android.widget.Button").text("关闭").findOne().click();
+  const cBtn = className("android.widget.Button").textMatches(/.*合种加速百分之.*/).findOne(1000);
+  if (cBtn) {
+    cBtn.click();
     sleep(1200);
-  } else {
-    console.log('未参与合种或者未找到亲密度弹窗');
+    // 如果打开了亲密度弹窗
+    if (className("android.widget.Image").text("合种亲密度").exists()) {
+      const res = findTimeout(className("android.widget.Button").text("立即领取").depth(18).clickable(true), 2000);
+      if (res) {
+        res.forEach(function (item) {
+          item.click();
+          sleep(1500);
+        });
+        console.log('亲密度肥料领取完成');
+        closeOpenModal();
+        return;
+      }
+    }
   }
+  closeOpenModal();
+
+  console.log('未参与合种或者未找到亲密度入口');
+  return;
 }
 
 function startTaobao(params) {
@@ -419,15 +476,16 @@ function startTaobao(params) {
   try {
     enterFarmTaobao();
     closeOpenModal();
+    endFriendship();
     collect();
-    // className('android.widget.Button').text('集肥料').findOne().click();
-    // sleep(3000);
-    // sign();
-    // // 开始浏览任务
-    // startTaobaoBrowseTask();
-    // backToTaoList();
-    // // 开始互动任务
-    // startActTask();
+    className('android.widget.Button').text('集肥料').findOne().click();
+    sleep(3000);
+    sign();
+    // 开始浏览任务
+    startTaobaoBrowseTask();
+    backToTaoList();
+    // 开始互动任务
+    startActTask();
     if (furOpen) {
       console.info('开始自动施肥');
       fertilizerTaobao();
@@ -436,7 +494,7 @@ function startTaobao(params) {
     }
 
     if (payOpen) {
-      console.log('淘宝任务结束，开始支付宝任务');
+      console.log('淘宝任务结束，即将开始支付宝任务');
     } else {
       console.log('淘宝任务结束');
     }
@@ -458,18 +516,18 @@ if (taobaoOpen) {
 
 // 支付宝进入农场
 function enterFarm() {
-  console.log('进入农场');
+  console.log('进入zfb农场');
   if (text("芭芭农场").exists()) {
     text("芭芭农场").findOne().parent().parent().click();
   } else {
     throw Error('未在首页找到芭芭农场入口，请将芭芭农场小程序移动到支付宝首页显示');
   }
-  sleep(3000);
+  sleep(5000);
 }
 
 // 返回支付宝任务详情
 function backToPayList() {
-  console.log('尝试返回');
+  console.log('尝试返回任务列表');
 
   // 已经打开任务列表了
   if (className("android.widget.Button").text("连续签到任务规则").exists()) {
@@ -484,7 +542,7 @@ function backToPayList() {
   back();
   sleep(1000);
   if (!currentPackage().includes('Alipay')) {
-    console.log('当前不在支付宝中，尝试重新进入...');
+    console.warn('当前不在支付宝中，尝试重新进入...');
     sleep(2000);
     app.launch("com.eg.android.AlipayGphone");
     sleep(2000);
@@ -549,7 +607,7 @@ function backToPayList() {
       console.log('已经在芭芭农场，重新打开任务列表')
       return;
     }
-    console.log('仍然在支付宝中，但不在芭芭农场页面');
+    console.warn('仍然在支付宝中，但不在芭芭农场页面');
     let retryTime = 0;
     let success = false;
     while (retryTime < 5) {
@@ -570,7 +628,7 @@ function backToPayList() {
         sleep(2000);
         return;
       } else if (text("芭芭农场").exists()) {
-        console.log('直接进入芭芭农场')
+        console.log('直接进入芭芭农场');
         enterFarm();
         className("android.widget.Button").text("任务列表").findOne().click();
         retryTime = 10;
@@ -601,7 +659,7 @@ function backToPayList() {
  * 只能通过position去尝试定位一下
  */
 function startAlipaybrowse() {
-  const res = findTimeout(className("android.widget.TextView").textMatches(/.*浏览15.*|.*浏览精选好物.*/), 5000);
+  const res = findTimeout(className("android.widget.TextView").textMatches(/.*浏览15.*|.*浏览精选好物.*|.*逛15.*/), 5000);
   if (res === null) {
     console.log('未找到浏览任务');
     return;
@@ -615,7 +673,7 @@ function startAlipaybrowse() {
       sleep(4000);
       let finish_c = 0;
       let countdown = 0;
-      console.log('开始检测任务完成，部分控件无法检测，会在15秒后自动返回，请耐心等待。')
+      console.log('开始浏览任务，会在15秒后自动返回。')
       while (finish_c < 36) {
         let finish_reg = /.*任务完成.*|.*下单最高可得[\s\S]*|.*当前页下单得*|.*浏览完成*/;
         if (className("android.widget.TextView").textMatches(finish_reg).exists()) {
@@ -657,10 +715,10 @@ function startAlipayAct() {
   if (gameText) {
     gameTextRect = gameText.bounds();
   }
-  const allNotSupportTask = findTimeout(className("android.widget.TextView").textMatches(/.*砸蛋.*|.*落叶.*|.*下单.*|.*饿了么.*/), 2000);
+  const allNotSupportTask = findTimeout(className("android.widget.TextView").textMatches(/.*砸蛋.*|.*落叶.*|.*下单包邮.*|.*饿了么.*/), 2000);
   let allNotSupportTaskLength = 0;
   if (allNotSupportTask) {
-    console.log('共找到不可完成任务：', allNotSupportTask.length);
+    console.log('当前共找到不可完成任务：', allNotSupportTask.length);
     allNotSupportTaskLength = allNotSupportTask.length;
   }
   const res = findTimeout(className("android.widget.Button").clickable(true).textMatches(/.*去完成.*|.*去逛逛.*/).enabled(true), 7000);
@@ -672,8 +730,12 @@ function startAlipayAct() {
   if ((res.length <= retryFailTasks) &&
     (!allNotSupportTaskLength
       || (allNotSupportTaskLength && res.length <= allNotSupportTaskLength))) {
-    console.log("剩余任务可能均不能完成，请手动完成");
+    console.warn("剩余任务可能均不能完成，请手动完成");
     return;
+  }
+  if (retryFailTasks.length > allNotSupportTaskLength) {
+    console.log('部分任务状态判断失败，重试中，清空点击记录');
+    btnClickTime = {};
   }
   res.forEach((item, index) => {
     const b = item.bounds();
@@ -747,19 +809,25 @@ const fertilizerAlipay = function () {
     const y = res.bounds().centerY();
 
     // 相对坐标找签到领取
-    click();
+    // click();
     sleep(1000);
 
     let loop = true;
-    while (loop) {
+    let clickTimes = 0;
+    while (loop && clickTimes < 420) {
       // click(x, y-300)
+      clickTimes++;
       // 施肥
       click(device.width / 2, y);
       if (textMatches(/.*施肥次数.*用完.*/).exists()) {
-        console.log("今日施肥已达上限")
+        console.info("今日施肥已达上限")
         loop = false;
       }
       sleep(500);
+    }
+    if (clickTimes >= 420) {
+      console.info('检测任务结束异常，达到最大施肥次数，已停止');
+      return;
     }
     return;
   } else {
@@ -795,15 +863,16 @@ function startAlipay() {
       }
     }
 
-    console.info('全部任务已经结束~如有问题请联系开发者');
   } catch (error) {
-    console.error('异常退出', error)
+    console.error('异常退出>>>', error);
+    console.log('请保留日志信息，便于排查');
   }
 }
 if (payOpen) {
   startAlipay();
 }
 
+console.info('>>>>>全部任务已经结束<<<<<');
 quit();
 
 
