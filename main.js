@@ -346,14 +346,13 @@ function getBtnClick() {
 // 关闭弹窗
 function closeOpenModal(duration) {
   const res = findTimeout(className("android.widget.Button").text("关闭").clickable(true), duration || 5000);
-  if (res === null && !duration) {
-    console.log('未找到关闭弹窗');
-    return;
-  }
   if (res === null) {
-    console.log('未找到关闭弹窗');
+    if (!duration) {
+      console.log('未找到关闭弹窗');
+    }
     return;
   }
+
   console.log('有弹窗，尝试关闭弹窗');
   res.forEach(function (item) {
     item.click();
@@ -380,7 +379,7 @@ function fertilizerTaobao() {
   const itemHeight = btnRect.bottom - btnRect.top;
   console.log("开始施肥");
   const clickTimes = 0;
-  while (loop && clickTimes < 420) {
+  while (loop && clickTimes < 220) {
     clickTimes++;
     closeOpenModal(1000);
     // 施肥
@@ -394,7 +393,7 @@ function fertilizerTaobao() {
     click(device.width / 2, btnRect.centerY() - (itemHeight * 2));
     sleep(500);
   }
-  if (clickTimes >= 420) {
+  if (clickTimes >= 220) {
     console.log('检测任务结束异常，达到最大施肥次数，已停止');
     return
   }
@@ -814,20 +813,19 @@ function startAlipayTask() {
       if (res) {
         res.forEach(i => {
           // console.log('当前按钮文案', i.text());
-          if (i
+          const isDoable = i
             && /.*去完成.*|.*去逛逛.*/.test(i.text())
-            && /.*浏览15.*|.*浏览精选好物.*|.*逛15.*|.*逛逛.*|.*逛一逛.*|.*到淘宝.*/.test(preText)
-            && !/.*砸蛋.*|.*落叶.*|.*下单包邮.*|.*饿了么.*|.*合种.*/.test(preText)) {
+            && /.*浏览15.*|.*浏览精选好物.*|.*逛15.*|.*逛逛.*|.*逛一逛.*|.*到淘宝.*|.*看助农小视频.*/.test(preText)
+            && !/.*砸蛋.*|.*落叶.*|.*下单包邮.*|.*饿了么.*|.*合种.*/.test(preText);
+          if (i) { console.log('当前按钮文案', i.text()) }
+          console.log('当前判断条件成立', isDoable, preText);
+          if (isDoable) {
             console.log('开始执行任务');
             taskCounts++;
             countMap[preText] = (countMap[preText] || 0) + 1;
             if (countMap[preText] > 1) {
               console.log('本任务已经执行，本次跳过');
               return;
-            }
-            const retryFailTasks = Object.values(actClickTime).filter(i => i > 1).length;
-            if (retryFailTasks >= taskCounts) {
-              allDone = true;
             }
             // 浏览任务
             i.click();
@@ -848,15 +846,12 @@ function startAlipayTask() {
               }
               finish_c++;
             }
-            if (finish_c > 35) {
+            if (finish_c >= 35) {
               console.log('未检测到任务完成标识。返回。');
               backToPayList();
               return
             }
             backToPayList();
-          }
-          if (!taskCounts) {
-            allDone = true;
           }
         });
       }
@@ -865,10 +860,14 @@ function startAlipayTask() {
       preText = preText + item.text();
     }
   });
-  if (allDone) {
+  const retryFailTasks = Object.values(countMap).filter(i => i > 1).length;
+
+  // 没有任务 | 本次执行的任务全部都重试过
+  if (!taskCounts || retryFailTasks >= taskCounts) {
     return;
   }
   taskCounts = 0;
+  // countMap = {};
   sleep(1000);
   startAlipayTask();
 }
@@ -900,7 +899,7 @@ const fertilizerAlipay = function () {
 
     let loop = true;
     let clickTimes = 0;
-    while (loop && clickTimes < 420) {
+    while (loop && clickTimes < 220) {
       // click(x, y-300)
       clickTimes++;
       // 施肥
@@ -911,7 +910,7 @@ const fertilizerAlipay = function () {
       }
       sleep(500);
     }
-    if (clickTimes >= 420) {
+    if (clickTimes >= 220) {
       console.info('检测任务结束异常，达到最大施肥次数，已停止');
       return;
     }
