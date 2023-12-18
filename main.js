@@ -794,7 +794,13 @@ const countMap = {};
 // 之前的任务总是有问题..支付宝的布局问题，而且控件老是变
 function startAlipayTask() {
   gatherFur();
-  const allChildren = className('android.view.View').textMatches(/.*浏览.*/).findOne().parent().children();
+  const findOneChild = className('android.view.TextView').textMatches(/.*浏览.*/).findOne(2000);
+  let allChildren;
+  if (findOneChild) {
+    allChildren= findOneChild.parent().children();
+  } else {
+    allChildren = className('android.widget.TextView').textMatches(/.*浏览.*/).findOne(2000).parent().children();
+  }
   let preText = '';
   let taskCounts = 0;
   let allDone = false;
@@ -864,6 +870,7 @@ function startAlipayTask() {
 
   // 没有任务 | 本次执行的任务全部都重试过
   if (!taskCounts || retryFailTasks >= taskCounts) {
+    console.log('没有任务');
     return;
   }
   taskCounts = 0;
