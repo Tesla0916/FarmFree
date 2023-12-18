@@ -12,14 +12,12 @@ function userChoice() {
   payOpen && indices.push(1)
   furOpen && indices.push(2)
   indices.push(3)
-  indices.push(4)
 
   let settings = dialogs.multiChoice('任务设置',
     ['开始淘宝任务',
       '开始支付宝任务',
       '自动施肥(至少勾选支付宝或者淘宝中的一项，如果都选择了，将优先在淘宝任务结束后执行)',
-      '请确认已退出淘宝和支付宝',
-      '可以通过按【音量下】键停止脚本任务'
+      '请确认已退出淘宝和支付宝。可以通过按【音量下】键停止脚本任务'
     ], indices)
 
   if (settings.length == 0) {
@@ -218,7 +216,7 @@ function entryHome() {
 
 // 淘宝浏览任务 自调用直到所有的任务完成
 function startTaobaoBrowseTask() {
-  const searchTaks = findTimeout(className("android.widget.TextView").textContains("浏览15秒得"), 5000);
+  const searchTaks = findTimeout(className("android.widget.TextView").textMatches(/.*浏览15秒得.*|.*搜一搜你心仪的宝贝.*/), 5000);
   if (searchTaks === null) {
     console.log('未找到浏览任务');
     closeOpenModal();
@@ -334,7 +332,7 @@ function getBtnClick() {
   console.log("开始自动领取");
   const btns = findTimeout(className("android.widget.Button").text("去领取"), 5000);
   if (btns === null) {
-    console.log('未找到任务')
+    console.log('未找到定时任务')
     return;
   }
   btns.forEach(function (btn) {
@@ -348,10 +346,13 @@ function getBtnClick() {
 // 关闭弹窗
 function closeOpenModal(duration) {
   const res = findTimeout(className("android.widget.Button").text("关闭").clickable(true), duration || 5000);
-  if (res === null && !duration) {
-    console.log('未找到关闭弹窗');
+  if (res === null) {
+    if (!duration) {
+      console.log('未找到关闭弹窗');
+    }
     return;
   }
+
   console.log('有弹窗，尝试关闭弹窗');
   res.forEach(function (item) {
     item.click();
@@ -378,7 +379,7 @@ function fertilizerTaobao() {
   const itemHeight = btnRect.bottom - btnRect.top;
   console.log("开始施肥");
   const clickTimes = 0;
-  while (loop && clickTimes < 420) {
+  while (loop && clickTimes < 220) {
     clickTimes++;
     closeOpenModal(1000);
     // 施肥
@@ -392,7 +393,7 @@ function fertilizerTaobao() {
     click(device.width / 2, btnRect.centerY() - (itemHeight * 2));
     sleep(500);
   }
-  if (clickTimes >= 420) {
+  if (clickTimes >= 220) {
     console.log('检测任务结束异常，达到最大施肥次数，已停止');
     return
   }
@@ -406,7 +407,7 @@ function enterFarmTaobao(params) {
     let y = rect.centerY();
     if (x > device.width) {
       console.info('超出屏幕，尝试滑动寻找');
-      swipe(device.width / 1.2, y, 200, y, 500);
+      swipe(device.width - 100, y, 100, y, 500);
       sleep(200);
     } else {
       click(x, y);
@@ -654,6 +655,7 @@ function backToPayList() {
 }
 
 /**
+ * @deprecated
  * 开始支付宝浏览任务
  * 支付宝比较奇怪，没法通过元素反查父元素，面板里所有的元素都同级。
  * 只能通过position去尝试定位一下
@@ -705,6 +707,7 @@ function startAlipaybrowse() {
 
 // 按照坐标记录重试的点位次数——有个问题，但是浏览任务在同一个坑位确实会刷新出新的任务
 /**
+ * @deprecated
  * 支付宝的互动任务按钮没有区分只能按照全量查找了
  */
 const btnClickTime = {};
@@ -787,10 +790,99 @@ function startAlipayAct() {
   startAlipayAct();
 }
 
+const countMap = {};
+// 之前的任务总是有问题..支付宝的布局问题，而且控件老是变
+function startAlipayTask() {
+  gatherFur();
+  const findOneChild = className('android.view.TextView').textMatches(/.*浏览.*/).findOne(2000);
+  let allChildren;
+  if (findOneChild) {
+    allChildren= findOneChild.parent().children();
+  } else {
+    allChildren = className('android.widget.TextView').textMatches(/.*浏览.*/).findOne(2000).parent().children();
+  }
+  let preText = '';
+  let taskCounts = 0;
+  let allDone = false;
+  // 遍历所有的子元素，按照匹配任务去执行
+  allChildren.forEach(item => {
+    /**
+     * layout大概是这样
+     * view
+     * view
+     *  button
+     */
+    if (!item.text()) { // 这样的text为空应该是按钮父布局
+      console.log('进入按钮区域')
+      const res = item.children();
+      // console.log(res)
+      if (res) {
+        res.forEach(i => {
+          // console.log('当前按钮文案', i.text());
+          const isDoable = i
+            && /.*去完成.*|.*去逛逛.*/.test(i.text())
+            && /.*浏览15.*|.*浏览精选好物.*|.*逛15.*|.*逛逛.*|.*逛一逛.*|.*到淘宝.*|.*看助农小视频.*/.test(preText)
+            && !/.*砸蛋.*|.*落叶.*|.*下单包邮.*|.*饿了么.*|.*合种.*/.test(preText);
+          if (i) { console.log('当前按钮文案', i.text()) }
+          console.log('当前判断条件成立', isDoable, preText);
+          if (isDoable) {
+            console.log('开始执行任务');
+            taskCounts++;
+            countMap[preText] = (countMap[preText] || 0) + 1;
+            if (countMap[preText] > 1) {
+              console.log('本任务已经执行，本次跳过');
+              return;
+            }
+            // 浏览任务
+            i.click();
+            sleep(4000);
+            let finish_c = 0;
+            let countdown = 0;
+            console.log('开始浏览任务，会在15秒后自动返回。')
+            while (finish_c < 36) {
+              let finish_reg = /.*任务完成.*|.*下单最高可得[\s\S]*|.*当前页下单得*|.*浏览完成*/;
+              if (className("android.widget.TextView").textMatches(finish_reg).exists()) {
+                console.log('任务完成');
+                break;
+              }
+              if (finish_c && !text('更多直播').exists() && !text('视频').exists()) {
+                swipe(device.width / 2, device.height - 300, device.width / 2 + 20, device.height - 500, 1000)
+                finish_c = finish_c + 2;
+                continue;
+              }
+              finish_c++;
+            }
+            if (finish_c >= 35) {
+              console.log('未检测到任务完成标识。返回。');
+              backToPayList();
+              return
+            }
+            backToPayList();
+          }
+        });
+      }
+      preText = '';
+    } else {
+      preText = preText + item.text();
+    }
+  });
+  const retryFailTasks = Object.values(countMap).filter(i => i > 1).length;
+
+  // 没有任务 | 本次执行的任务全部都重试过
+  if (!taskCounts || retryFailTasks >= taskCounts) {
+    console.log('没有任务');
+    return;
+  }
+  taskCounts = 0;
+  // countMap = {};
+  sleep(1000);
+  startAlipayTask();
+}
+
 function gatherFur(params) {
   const res = findTimeout(className('android.widget.Button').text('领取'), 5000);
   if (res === null) {
-    console.log('未找到任务');
+    console.log('未找到领取任务');
     return;
   }
   console.log('领取肥料')
@@ -814,7 +906,7 @@ const fertilizerAlipay = function () {
 
     let loop = true;
     let clickTimes = 0;
-    while (loop && clickTimes < 420) {
+    while (loop && clickTimes < 220) {
       // click(x, y-300)
       clickTimes++;
       // 施肥
@@ -825,7 +917,7 @@ const fertilizerAlipay = function () {
       }
       sleep(500);
     }
-    if (clickTimes >= 420) {
+    if (clickTimes >= 220) {
       console.info('检测任务结束异常，达到最大施肥次数，已停止');
       return;
     }
@@ -849,11 +941,12 @@ function startAlipay() {
       // 打开任务面板
       className("android.widget.Button").text("任务列表").findOne().click();
       sleep(2000);
-      gatherFur();
-      startAlipaybrowse();
-      sleep(2000);
+      // gatherFur();
+      // startAlipaybrowse();
+      // sleep(2000);
       // 开始任务
-      startAlipayAct();
+      // startAlipayAct();
+      startAlipayTask();
       // 支付宝施肥
       if (furOpen) {
         console.info('开始自动施肥');
