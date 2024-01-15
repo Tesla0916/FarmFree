@@ -216,7 +216,7 @@ function entryHome() {
 
 // 淘宝浏览任务 自调用直到所有的任务完成
 function startTaobaoBrowseTask() {
-  const searchTaks = findTimeout(className("android.widget.TextView").textMatches(/.*浏览15秒得.*|.*搜一搜你心仪的宝贝.*/), 5000);
+  const searchTaks = findTimeout(className("android.widget.TextView").textMatches(/.*浏览15秒得.*|.*搜一搜你心仪的宝贝.*|.*生姜.*/), 5000);
   if (searchTaks === null) {
     console.log('未找到浏览任务');
     closeOpenModal();
